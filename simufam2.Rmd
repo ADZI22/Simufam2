@@ -1,0 +1,178 @@
+---
+title: "Simulation des données familiales avec le package simufam2"
+author: "Emilie ADZIMASE "
+date: "`r Sys.Date()`"
+toc: true
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+
+
+# Introduction
+
+Le package *`simufam2`* permet de simuler des structures familiales pour étudier la pénétrance de maladies génétiques (notamment les cancers héréditaires), de tester des stratégies de sélection de familles ou d’individus, et de constituer des cohortes prospectives ou rétrospectives dans un cadre épidémiologique. Ce document présente quelques fonctions importantes de ce package essentiel à la simulation des données familiales.
+
+# Chargement des bibliothèques
+Le package peut s'installer comme suit:
+
+```{r setup, include=TRUE, message=FALSE}
+
+library(simufam2)
+library(dplyr)
+library(ggplot2)
+```
+
+# 1. Définition des paramètres de simulation
+Pour simuler les données, nous avons besoin de plusieurs paramètres comme la taille de l'échantillon de famille que nous considerons, les fonctions de pénétrance pour chez les individus porteurs et non porteurs de la mutation. 
+
+## 1.1. Simulation de la fonction de pénétrance chez les porteurs de la mutation
+Nous supposons un risque sur la vie (120 ans) de 60% comme dans le cas du cancer colorectal chez les femmes avec comme gène responsable le MH1 ou le MHS2. Nous 
+simulons ensuite le risque de cancer cumulé à chaque age (0-120 ans) à partir d'une fonction Weibull. La fonction utilisée est `penetrance.Weibull` de notre package.
+
+```{r}
+
+# Simulation de la fonction de pénétrance chez les porteurs
+# Ici, on suppose un risque cumulé de 60 % à 120 ans,
+# avec H1 = proportion de non-malades à t1 parmi ceux à risque
+# et H2 = proportion de non-malades à t2 parmi ceux non-malades à t1 mais encore à risque à t2
+risk_mute_simu <- simufam2::penetrance.Weibull(d = 3/5, H1 = 3/4, H2 = 1/3)
+
+```
+
+La fonction `penetrance.Weibull(d, H1, H2)` génère une courbe de pénétrance (cumulative) sur la vie (jusqu’à 120 ans), en s’appuyant sur une modélisation de type Weibull. Elle prend trois paramètres indépendants :
+
+- **d** est la pénétrance sur la vie (120 ans)
+- **H1** est la proportion d’individus non atteints à *t1* années parmi ceux à risque
+- **H2** est la proportion d’individus non atteints à *t2* années parmi ceux qui étaient non atteints à *t1* mais toujours à risque à *t2*.
+
+*Ces trois paramètres sont indépendants les uns des autres et sont définis entre 0 et 1.*
+
+
+```{r}
+#Affichage des premières lignes 
+head(risk_mute_simu)
+```
+
+**Représentation graphique de la pénétrance simulée chez les porteurs de la mutation**
+
+```{r}
+plot(risk_mute_simu, col = "red",
+     xlab = "Age",
+     ylab = "Pénétrance",
+     main = "Courbe de pénétrance simulée chez les porteurs", 
+     type = "l",
+     cex = 0.8)
+
+```
+
+
+
+
+## 1.2. Simulation de la fonction de pénétrance chez les non-porteurs de la mutation
+De la même manière, nous allons simuler la pénétrance chez les non porteurs de la mutation. Nous avons supposé que cette  dernière est de 5%. La simulation se fera aussi avec la fonction `penetrance.Weibull` du package `simufam2`.
+
+```{r}
+#Pénétrance chez les non-porteurs de la mutation
+risk_nmute_simu <-  simufam2::penetrance.Weibull(d = 5/100, H1 = 9/10, H2 = 1/2)
+#Affichage des premières lignes 
+head(risk_nmute_simu)
+```
+
+
+**Représentation graphique de la pénétrance simulée chez les non-porteurs de la mutation**
+```{r}
+plot(risk_nmute_simu, col = "blue",
+     xlab = "Age",
+     ylab = "Pénétrance",
+     main = "Courbe de pénétrance simulée chez les non-porteurs", 
+     type = "l",
+     cex = 0.8)
+
+```
+
+
+
+
+# 2. Simulation des données de familles 
+Nous allons simuler un échantillon de 100 000 familles avec un risque chez les porteurs de mutation à 60% et 5% chez les non porteurs. Nous supposons aussi une fréquence allélique de 0.001 pour cette simulation.
+
+Chaque famille est générée avec une structure généalogique standard que nous propose Bonaïti et al 2011 <https://pmc.ncbi.nlm.nih.gov/articles/PMC3025788/>. L'individu id 17 est le cas index.
+```{r}
+ped2 <- kinship2::pedigree(id = ped$id, 
+                          dadid = ped$dadid, 
+                          momid = ped$momid, 
+                          sex = ped$sex)
+
+plot(ped2)
+```
+
+
+```{r}
+
+#Simulation des familles 
+fam <-  simufam2::simul_families(fA = 0.001, 
+                                      n = 10e4, 
+                                      risk_mute = risk_mute_simu, 
+                                      risk_nmute = risk_nmute_simu)
+
+#Affichage des premières lignes 
+print(fam, width = Inf)
+
+
+```
+
+- *id_family* : identifiant de la famille
+
+- *genotype* : 1 si porteur de la mutation, 0 sinon
+
+- *id, dadid, momid* : identifiants de l'individu, du père et de la mère
+
+- *generation* : génération de l'individu (génération 0 est celui du cas index, id 17)
+- *kin_id17* : Lien de paranté avec le cax index (id = 17)
+- *age_ddn* : Age aux dernières nouvelles à partir de la distribution empirique dans la base OFELY
+
+- *tested* : indicateurs du statut de test (individu testé ou pas)
+- *age_cancer, Phenotype* : âge au cancer, phénotype (1 si l'individu a le cancer)
+
+
+
+**Temps de simulation de 100 000 familles :**
+```{r}
+
+system.time({
+  families <- simufam2::simul_families(fA = 0.001, 
+                                       n = 1e5, 
+                                       risk_mute = risk_mute_simu, 
+                                       risk_nmute = risk_nmute_simu)
+})
+```
+Cette commande montre un temps d’exécution de ~1.9 secondes pour la simulation de 100 000 familles, ce qui reste raisonnable pour une simulation de grande ampleur.
+
+
+
+# 3. Filter les familles ayant un nombre minimal de cas de cancer donné
+Dans le cadre de l’estimation de la pénétrance, il est souvent pertinent de restreindre l’analyse aux familles les plus informatives, c’est-à-dire celles comptant un certain nombre minimal de cas de cancer.
+La fonction `filter_byNMA()` permet de filtrer l’échantillon simulé en ne conservant que les familles comportant au moins un nombre spécifié d’individus atteints.
+
+```{r}
+fam2 <- simufam2::filter_fam_byMNA(families = fam ,nma = 3)
+```
+
+# 4. Constitution d'une cohorte prospective 
+La fonction `select_prospective()` permet d’extraire une cohorte prospective à partir des familles simulées. On sélectionne ici les porteurs de la mutation et indemnes de cancer à l’inclusion *(t = 0)* et on les suit pendant 10 ans *(t = 10)*. Le but est de simuler une étude de suivi permettant d’estimer la pénétrance par méthode de Kaplan-Meier ou Cox.
+
+```{r results='hide'}
+cohort <- simufam2::select_prospective(families = families ,t = 10)
+```
+```{r}
+print(cohort, width = Inf)
+```
+
+- *age_fsuivi*: Age à la fin de suivi 
+- *age_deces*: Age de decès en utilisant les tables de mortalité de l'INSEE, 2022 
+- *event*: 1 si l'individu a un cancer sur la période de suivi
+- *fin_suivi*: Âge minimal entre l’âge au cancer, l’âge au décès et l’âge à la fin du suivi.
+
